@@ -1,0 +1,204 @@
+# 日志风险检测与自动修复系统配置文件
+
+# 系统配置
+system:
+  max_line_length: 1048576  # 1MB
+  max_decode_rounds: 5
+  concurrency: 4
+  rate_limit: 10000  # 行/秒
+  memory_limit_mb: 600
+  
+# 时间配置
+time:
+  default_timezone: "UTC"
+  correlation_window: 60  # 秒
+  ttl_cleanup_interval: 300  # 秒
+  
+# 租户配置
+tenants:
+  default: "system"
+  isolation: true
+  
+# 解析器配置
+parsers:
+  nginx:
+    format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"'
+    time_format: "%d/%b/%Y:%H:%M:%S %z"
+  apache:
+    format: '%h %l %u %t "%r" %>s %O "%{Referer}i" "%{User-Agent}i"'
+    time_format: "[%d/%b/%Y:%H:%M:%S %z]"
+  json:
+    nested_fields: ["request", "response", "error"]
+    array_fields: ["tags", "labels"]
+  database:
+    statement_types: ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"]
+  container:
+    kubernetes_prefix: true
+    pod_container_extraction: true
+  cloud_audit:
+    user_fields: ["user", "principal", "actor"]
+    resource_fields: ["resource", "target", "object"]
+    action_fields: ["action", "operation", "verb"]
+
+# 威胁检测规则
+rules:
+  sqli:
+    - id: "R_SQLI_001"
+      pattern: "(?i)(union\\s+select|select\\s+.*\\s+from|insert\\s+into|update\\s+.*\\s+set|delete\\s+from)"
+      severity: "high"
+      description: "SQL注入基础模式"
+    - id: "R_SQLI_002"  
+      pattern: "(?i)(\\bor\\b\\s+\\d+\\s*=\\s*\\d+|\\band\\b\\s+\\d+\\s*=\\s*\\d+)"
+      severity: "medium"
+      description: "SQL注入逻辑绕过"
+    - id: "R_SQLI_003"
+      pattern: "(?i)(\\*/.*select|select.*\\*/|union.*\\*/.*select)"
+      severity: "high"
+      description: "SQL注入注释混淆"
+      
+  xss:
+    - id: "R_XSS_001"
+      pattern: "(?i)(<script[^>]*>|</script>|javascript:|on\\w+\\s*=)"
+      severity: "high"
+      description: "XSS基础模式"
+    - id: "R_XSS_002"
+      pattern: "(?i)(alert\\s*\\(|confirm\\s*\\(|prompt\\s*\\()"
+      severity: "medium"
+      description: "XSS弹窗函数"
+    - id: "R_XSS_003"
+      pattern: "(?i)(onerror\\s*=|onload\\s*=|onclick\\s*=)"
+      severity: "high"
+      description: "XSS事件处理器"
+      
+  command_injection:
+    - id: "R_CMD_001"
+      pattern: "(;\\s*|\\|\\s*|&&\\s*|\\$\\(|`)(cat|ls|pwd|whoami|id|uname)"
+      severity: "high"
+      description: "命令注入基础模式"
+    - id: "R_CMD_002"
+      pattern: "(\\.\\./){2,}|(\\\\\\.\\.\\\\){2,}"
+      severity: "medium"
+      description: "路径遍历攻击"
+      
+  ssrf:
+    - id: "R_SSRF_001"
+      pattern: "(?i)(http://localhost|http://127\\.0\\.0\\.1|http://0\\.0\\.0\\.0|http://\\[::1\\])"
+      severity: "high"
+      description: "SSRF内网访问"
+    - id: "R_SSRF_002"
+      pattern: "(?i)(file://|ftp://|gopher://|dict://)"
+      severity: "medium"
+      description: "SSRF协议绕过"
+      
+  log4shell:
+    - id: "R_LOG4J_001"
+      pattern: "\\$\\{jndi:(ldap|rmi|dns)://"
+      severity: "critical"
+      description: "Log4Shell漏洞利用"
+      
+  sensitive_data:
+    - id: "R_PII_EMAIL"
+      pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      severity: "low"
+      description: "邮箱地址泄露"
+    - id: "R_PII_PHONE"
+      pattern: "(\\+?86)?1[3-9]\\d{9}"
+      severity: "low"
+      description: "手机号泄露"
+    - id: "R_PII_IDCARD"
+      pattern: "[1-9]\\d{5}(18|19|20)\\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])\\d{3}[0-9Xx]"
+      severity: "medium"
+      description: "身份证号泄露"
+    - id: "R_SECRET_JWT"
+      pattern: "eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+"
+      severity: "high"
+      description: "JWT令牌泄露"
+    - id: "R_SECRET_APIKEY"
+      pattern: "(?i)(api[_-]?key|access[_-]?key|secret[_-]?key)\\s*[:=]\\s*['\"]?[a-zA-Z0-9]{20,}['\"]?"
+      severity: "high"
+      description: "API密钥泄露"
+
+# 机器学习配置
+ml:
+  enabled: true
+  model_type: "tfidf_lr"  # tfidf_lr, isolation_forest
+  train_ratio: 0.8
+  test_ratio: 0.2
+  max_features: 10000
+  min_samples: 100
+  threshold: 0.7
+  retrain_interval: 3600  # 秒
+  
+# 异常检测配置
+anomaly:
+  enabled: true
+  algorithm: "isolation_forest"  # isolation_forest, one_class_svm
+  contamination: 0.1
+  window_size: 100
+  min_samples: 50
+  
+# 关联分析配置
+correlation:
+  window_seconds: 60
+  max_events_per_window: 1000
+  correlation_fields: ["src_ip", "user_id", "session_token"]
+  severity_escalation:
+    multiple_rules: 1  # 提升1级
+    multiple_types: 2  # 提升2级
+    
+# 自动处置配置
+actions:
+  enabled: true
+  dry_run: false
+  
+  block_ip:
+    enabled: true
+    default_ttl: 600  # 10分钟
+    max_ttl: 86400   # 24小时
+    
+  throttle_ip:
+    enabled: true
+    rate_limit: 10   # 请求/分钟
+    default_ttl: 300 # 5分钟
+    
+  revoke_token:
+    enabled: true
+    token_types: ["jwt", "session", "api_key"]
+    
+  redact_log:
+    enabled: true
+    fields: ["password", "token", "key", "secret"]
+    
+# 脱敏配置
+masking:
+  enabled: true
+  patterns:
+    email: "***@***.***"
+    phone: "***-****-****"
+    id_card: "****-**-**-****"
+    credit_card: "****-****-****-****"
+    
+# 白名单配置
+whitelist:
+  ips: ["127.0.0.1", "::1"]
+  user_agents: ["HealthCheck", "Monitoring"]
+  paths: ["/health", "/metrics", "/ping"]
+  
+# 黑名单配置  
+blacklist:
+  ips: []
+  user_agents: ["sqlmap", "nikto", "nmap"]
+  
+# API配置
+api:
+  host: "0.0.0.0"
+  port: 8080
+  workers: 1
+  
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/system.log"
+  max_size: "10MB"
+  backup_count: 5
